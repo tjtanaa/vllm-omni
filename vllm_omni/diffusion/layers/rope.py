@@ -186,6 +186,14 @@ class RotaryEmbeddingWan(RotaryEmbedding):
     ) -> torch.Tensor:
         return self.forward_native(x, cos, sin)
 
+    def forward_hip(
+        self,
+        x: torch.Tensor,
+        cos: torch.Tensor,
+        sin: torch.Tensor,
+    ) -> torch.Tensor:
+        return self.forward_native(x, cos, sin)
+
     def forward_npu(
         self,
         x: torch.Tensor,
