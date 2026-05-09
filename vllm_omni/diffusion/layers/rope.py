@@ -184,7 +184,19 @@ class RotaryEmbeddingWan(RotaryEmbedding):
         cos: torch.Tensor,
         sin: torch.Tensor,
     ) -> torch.Tensor:
-        return self.forward_native(x, cos, sin)
+        if self.apply_rotary_emb_flash_attn is None:
+            return self.forward_native(x, cos, sin)
+
+        if cos.dim() > 2:
+            cos = cos.reshape(-1, cos.shape[-1])
+            sin = sin.reshape(-1, sin.shape[-1])
+
+        return self.apply_rotary_emb_flash_attn(
+            x,
+            cos,
+            sin,
+            interleaved=self.interleaved,
+        )
 
     def forward_hip(
         self,
@@ -192,7 +204,19 @@ class RotaryEmbeddingWan(RotaryEmbedding):
         cos: torch.Tensor,
         sin: torch.Tensor,
     ) -> torch.Tensor:
-        return self.forward_native(x, cos, sin)
+        if self.apply_rotary_emb_flash_attn is None:
+            return self.forward_native(x, cos, sin)
+
+        if cos.dim() > 2:
+            cos = cos.reshape(-1, cos.shape[-1])
+            sin = sin.reshape(-1, sin.shape[-1])
+
+        return self.apply_rotary_emb_flash_attn(
+            x,
+            cos,
+            sin,
+            interleaved=self.interleaved,
+        )
 
     def forward_npu(
         self,
