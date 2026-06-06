@@ -173,11 +173,14 @@ upload_pipeline() {
 
     cd .buildkite
 
-    # Select test definition file: merge suite for main, ready suite for PRs.
+    # Select test definition file: nightly suite for main, merge suite for PRs, ready suite for PRs.
     # For debugging, DEBUG_TEST_YAML can override the selection — accepts
-    # "merge" or "ready" (case-insensitive).
+    # "nightly", "merge" or "ready" (case-insensitive).
     if [[ -n "${DEBUG_TEST_YAML:-}" ]]; then
         case "${DEBUG_TEST_YAML,,}" in
+            nightly)
+                TEST_YAML="test-amd-nightly.yml"
+                ;;
             merge)
                 TEST_YAML="test-amd-merge.yml"
                 ;;
@@ -185,7 +188,7 @@ upload_pipeline() {
                 TEST_YAML="test-amd-ready.yaml"
                 ;;
             *)
-                echo "ERROR: DEBUG_TEST_YAML must be 'merge' or 'ready', got '$DEBUG_TEST_YAML'" >&2
+                echo "ERROR: DEBUG_TEST_YAML must be 'nightly', 'merge' or 'ready', got '$DEBUG_TEST_YAML'" >&2
                 exit 1
                 ;;
         esac
