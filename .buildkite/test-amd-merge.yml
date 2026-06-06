@@ -1,28 +1,35 @@
+env:
+  VLLM_WORKER_MULTIPROC_METHOD: spawn
+  HF_HUB_DOWNLOAD_TIMEOUT: 300
+  HF_HUB_ETAG_TIMEOUT: 60
+
 steps:
 
-- label: "Simple · Diffusion & Model Executor Test"
-  agent_pool: mi325_1
-  depends_on: amd-build
-  timeout_in_minutes: 50
-  mirror_hardwares: [amdproduction]
-  grade: Blocking
-  commands:
-    - export VLLM_ROCM_USE_AITER=0
-    # ignore test_teacache_extractors.py because it use rocm gemm kernel from vLLM
-    # that is not supported on CPU
-    - "timeout 40m pytest -sv tests/diffusion tests/model_executor -m 'core_model and cpu' --ignore=tests/diffusion/cache/test_teacache_extractors.py --cov=vllm_omni --cov-report=term-missing:skip-covered --cov-report=xml"
+- group: ":card_index_dividers: Simple Test"
+  steps:
+    - label: "Simple · Diffusion & Model Executor Test"
+      agent_pool: mi325_1
+      depends_on: amd-build
+      timeout_in_minutes: 50
+      mirror_hardwares: [amdproduction]
+      grade: Blocking
+      commands:
+        - export VLLM_ROCM_USE_AITER=0
+        # ignore test_teacache_extractors.py because it use rocm gemm kernel from vLLM
+        # that is not supported on CPU
+        - "timeout 40m pytest -sv tests/diffusion tests/model_executor -m 'core_model and cpu' --ignore=tests/diffusion/cache/test_teacache_extractors.py --cov=vllm_omni --cov-report=term-missing:skip-covered --cov-report=xml"
 
-- label: "Simple · Other Test"
-  agent_pool: mi325_1
-  depends_on: amd-build
-  timeout_in_minutes: 50
-  mirror_hardwares: [amdproduction]
-  grade: Blocking
-  commands:
-    - export VLLM_ROCM_USE_AITER=0
-    # ignore test_teacache_extractors.py because it use rocm gemm kernel from vLLM
-    # that is not supported on CPU
-    - "timeout 40m pytest -sv tests/diffusion tests/model_executor -m 'core_model and cpu' --ignore=tests/diffusion/cache/test_teacache_extractors.py --cov=vllm_omni --cov-report=term-missing:skip-covered --cov-report=xml"
+    - label: "Simple · Other Test"
+      agent_pool: mi325_1
+      depends_on: amd-build
+      timeout_in_minutes: 50
+      mirror_hardwares: [amdproduction]
+      grade: Blocking
+      commands:
+        - export VLLM_ROCM_USE_AITER=0
+        # ignore test_teacache_extractors.py because it use rocm gemm kernel from vLLM
+        # that is not supported on CPU
+        - "timeout 40m pytest -sv tests/diffusion tests/model_executor -m 'core_model and cpu' --ignore=tests/diffusion/cache/test_teacache_extractors.py --cov=vllm_omni --cov-report=term-missing:skip-covered --cov-report=xml"
 
 - label: "Diffusion Images API LoRA E2E"
   agent_pool: mi325_1
