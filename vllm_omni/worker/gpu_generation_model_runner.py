@@ -467,11 +467,16 @@ class GPUGenerationModelRunner(OmniGPUModelRunner, OmniConnectorModelRunnerMixin
         routed_experts_lists = None
         if self.routed_experts_initialized:
             routed_experts_lists = self._omni_extract_routed_experts(scheduler_output)
-        if inter_stage_outputs and self._should_accumulate_full_payload_output():
+        # Full-payload mode (always no-async-chunk: should_accumulate_full_payload_output
+        # is False when async_chunk is set) sends the COMPLETE per-request payload to the
+        # next stage. Use per_req_payloads, not inter_stage_outputs -- the latter is None
+        # in the no-async-chunk path, which previously skipped accumulation entirely and
+        # starved the downstream stage (300s connector-input timeout / empty output).
+        if per_req_payloads and self._should_accumulate_full_payload_output():
             for i, rid in enumerate(req_ids_output_copy):
                 req_state = self.requests.get(rid)
-                if req_state is not None and inter_stage_outputs[i]:
-                    self.accumulate_full_payload_output(rid, inter_stage_outputs[i], req_state)
+                if req_state is not None and per_req_payloads[i]:
+                    self.accumulate_full_payload_output(rid, per_req_payloads[i], req_state)
 
         output = OmniModelRunnerOutput(
             req_ids=req_ids_output_copy,

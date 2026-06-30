@@ -1656,12 +1656,17 @@ class GPUARModelRunner(OmniGPUModelRunner, OmniConnectorModelRunnerMixin):
         else:
             pooler_inter, pooler_client = None, pooler_output
 
-        if pooler_inter and self._should_accumulate_full_payload_output():
+        # Full-payload mode (always no-async-chunk: should_accumulate_full_payload_output
+        # is False when async_chunk is set) sends the COMPLETE per-request payload to
+        # the next stage. Use pooler_output, not pooler_inter -- pooler_inter is None in
+        # the no-async-chunk path, which previously skipped accumulation entirely and
+        # starved the downstream stage (300s connector-input timeout / empty audio).
+        if pooler_output and self._should_accumulate_full_payload_output():
             with record_function_or_nullcontext("omni_output_builder:accumulate_full_payload_output"):
                 for i, rid in enumerate(req_ids_output_copy):
                     req_state = self.requests.get(rid)
-                    if req_state is not None and pooler_inter[i]:
-                        self.accumulate_full_payload_output(rid, pooler_inter[i], req_state)
+                    if req_state is not None and pooler_output[i]:
+                        self.accumulate_full_payload_output(rid, pooler_output[i], req_state)
 
         with record_function_or_nullcontext("omni_output_builder:build_multimodal_outputs"):
             inter_stage_outputs = self._build_multimodal_outputs(pooler_inter)
