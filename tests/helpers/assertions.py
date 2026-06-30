@@ -29,7 +29,6 @@ _PRESET_VOICE_GENDER_MAP: dict[str, str] = {
     "serena": "female",
     "uncle_fu": "male",
     "chelsie": "female",
-    "clone": "female",
     "ethan": "male",
 }
 
