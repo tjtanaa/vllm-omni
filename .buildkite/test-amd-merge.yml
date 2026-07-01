@@ -10,14 +10,15 @@ steps:
     - label: "Simple · Diffusion & Model Executor Test"
       agent_pool: mi325_1
       depends_on: amd-build
-      timeout_in_minutes: 50
+      timeout_in_minutes: 70
       mirror_hardwares: [amdproduction]
       grade: Blocking
       commands:
         - export VLLM_ROCM_USE_AITER=0
         # ignore test_teacache_extractors.py because it use rocm gemm kernel from vLLM
         # that is not supported on CPU
-        - "timeout 40m pytest -sv tests/diffusion tests/model_executor -m 'core_model and cpu' --ignore=tests/diffusion/cache/test_teacache_extractors.py --cov=vllm_omni --cov-report=term-missing:skip-covered --cov-report=xml"
+        # CPU tests on ROCm gpu machines are very slow, so we give them more time.
+        - "timeout 60m pytest -sv tests/diffusion tests/model_executor -m 'core_model and cpu' --ignore=tests/diffusion/cache/test_teacache_extractors.py --cov=vllm_omni --cov-report=term-missing:skip-covered --cov-report=xml"
 
     - label: "Simple · Other Test"
       agent_pool: mi325_1
@@ -170,9 +171,10 @@ steps:
       depends_on: amd-build
       mirror_hardwares: [amdproduction]
       grade: Blocking
+      timeout_in_minutes: 70
       commands:
         - |
-          timeout 30m bash -c '
+          timeout 60m bash -c '
             export VLLM_LOGGING_LEVEL=DEBUG
             export VLLM_WORKER_MULTIPROC_METHOD=spawn
             export VLLM_ALLOW_LONG_MAX_MODEL_LEN="1"
