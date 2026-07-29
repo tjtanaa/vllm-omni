@@ -30,13 +30,24 @@ _DEPLOY_DIR = Path(__file__).resolve().parent.parent / "deploy"
 _STAGE_OVERRIDE_PATTERN = re.compile(r"^stage_(\d+)_(.+)$")
 
 
-def pipeline_cfg_resolver(config_type: type[PretrainedConfig]):
-    """Wraps a resolver such that we return None if a hf_config of the wrong type is provided."""
+def pipeline_cfg_resolver(config_type: type[PretrainedConfig], *, allow_none: bool = False):
+    """Reject configs for a different model while tolerating class skew.
+
+    vLLM and Transformers can load equivalent config classes through different
+    module identities.  In that case ``isinstance`` is false even though both
+    classes declare the same non-empty HF ``model_type``.
+    """
 
     def resolver_builder(func):
         @functools.wraps(func)
         def wrapper(hf_config: PretrainedConfig | None):
-            if hf_config is None or not isinstance(hf_config, config_type):
+            if hf_config is None:
+                return func(None) if allow_none else None
+            expected_model_type = getattr(config_type, "model_type", None)
+            compatible_model_type = bool(expected_model_type) and (
+                getattr(hf_config, "model_type", None) == expected_model_type
+            )
+            if not isinstance(hf_config, config_type) and not compatible_model_type:
                 return None
             return func(hf_config)
 
