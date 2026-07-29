@@ -219,7 +219,7 @@ class AsyncOmniEngine:
         deploy_config_path = kwargs.get("stage_configs_path") or kwargs.get("deploy_config")
         pipeline_config = StageConfigFactory.get_pipeline_config(
             model=model,
-            trust_remote_code=trust_remote_code,
+            trust_remote_code=bool(trust_remote_code),
             deploy_config_path=deploy_config_path,
         )
         self.endpoint_restrictions = pipeline_config.endpoint_restrictions if pipeline_config is not None else ()
