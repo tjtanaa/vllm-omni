@@ -75,6 +75,7 @@ class RocmOmniPlatform(OmniPlatform, RocmPlatform):
         cls,
         selected_backend: str | None,
         head_size: int,
+        allow_trtllm_default: bool = False,
     ) -> str:
         from vllm._aiter_ops import is_aiter_found_and_supported
 

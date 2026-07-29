@@ -123,7 +123,21 @@ class NPUOmniPlatform(OmniPlatform, NPUPlatform):
         cls,
         selected_backend: str | None,
         head_size: int,
+        allow_trtllm_default: bool = False,
     ) -> str:
+        """Get the diffusion attention backend class path for NPU platform.
+
+        NPU supports FLASH_ATTN via the mindiesd package, and SDPA as fallback.
+
+        Args:
+            selected_backend: User-selected backend name (e.g., "FLASH_ATTN",
+                "TORCH_SDPA"). If None, uses platform default.
+            head_size: Attention head size.
+            allow_trtllm_default: Does not support TRTLLM backend;
+                arg accepted for signature parity but unused.
+        Returns:
+            Fully qualified class path of the selected backend.
+        """
         from importlib.util import find_spec
 
         if selected_backend is not None:

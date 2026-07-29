@@ -61,13 +61,10 @@ def _cached_get_backend_cls(
     """
     from vllm_omni.platforms import current_omni_platform
 
-    extra_kwargs = {}
-    if current_omni_platform.is_cuda():
-        extra_kwargs["allow_trtllm_default"] = allow_trtllm_default
     backend_cls_path = current_omni_platform.get_diffusion_attn_backend_cls(
         selected_backend=backend_name,
         head_size=head_size,
-        **extra_kwargs,
+        allow_trtllm_default=allow_trtllm_default,
     )
     return _load_backend_cls(backend_cls_path)
 
