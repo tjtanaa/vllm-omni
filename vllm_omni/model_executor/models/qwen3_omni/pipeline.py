@@ -95,9 +95,9 @@ QWEN3_OMNI_THINKER_ONLY_PIPELINE = PipelineConfig(
 )
 
 
-@pipeline_cfg_resolver(config_type=Qwen3OmniMoeConfig, allow_none=True)
+@pipeline_cfg_resolver(config_type=Qwen3OmniMoeConfig)
 def resolve_qwen3_omni_pipeline(
-    hf_config: Qwen3OmniMoeConfig | None,
+    hf_config: Qwen3OmniMoeConfig,
 ) -> PipelineConfig:
     """Select the right pipeline variant based on the HF config, since some variants,
     e.g., Qwen3-Omni-30B-A3B-Captioner, are thinker only.
@@ -105,6 +105,6 @@ def resolve_qwen3_omni_pipeline(
     By default, we load the full pipeline, as this is the common case.
     """
     # If we have a config and it explicitly disabled audio input, load thinker only
-    if hf_config is not None and not hf_config.enable_audio_output:
+    if not hf_config.enable_audio_output:
         return QWEN3_OMNI_THINKER_ONLY_PIPELINE
     return QWEN3_OMNI_PIPELINE

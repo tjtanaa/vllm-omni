@@ -600,34 +600,6 @@ class TestPipelineDiscovery:
         assert pipeline.default_deploy_config_name is None
         assert len(pipeline.stages) == 1  # thinker only
 
-    def test_registry_resolver_qwen3_omni_without_hf_config_defaults_to_full_pipeline(self):
-        """An explicit Qwen3 pipeline remains usable if HF config loading fails."""
-        pipeline = resolve_pipeline_config("qwen3_omni_moe", None)
-
-        assert isinstance(pipeline, PipelineConfig)
-        assert pipeline.model_type == "qwen3_omni_moe"
-        assert len(pipeline.stages) == 3
-        assert [restriction.capability for restriction in pipeline.endpoint_restrictions] == [
-            OmniServingCapability.COMPLETIONS
-        ]
-
-    def test_qwen3_deploy_resolves_endpoint_restriction_without_hf_config(self):
-        """The stage-CLI deploy file must carry enough identity to restore route policy."""
-        deploy_path = get_deploy_config_path("qwen3_omni_moe.yaml")
-
-        with patch.object(StageConfigFactory, "get_hf_config", return_value=None):
-            pipeline = StageConfigFactory.get_pipeline_config(
-                model="Qwen/Qwen3-Omni-30B-A3B-Instruct",
-                trust_remote_code=False,
-                deploy_config_path=deploy_path,
-            )
-
-        assert pipeline is not None
-        assert pipeline.model_type == "qwen3_omni_moe"
-        assert [restriction.capability for restriction in pipeline.endpoint_restrictions] == [
-            OmniServingCapability.COMPLETIONS
-        ]
-
     @pytest.mark.parametrize(
         "pipeline",
         [registered for registered in OMNI_PIPELINES.values() if isinstance(registered, PipelineConfig)],

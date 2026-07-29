@@ -471,28 +471,6 @@ class TestSingleStageModeDetection:
         assert engine._omni_master_address == "10.0.0.1"
         assert engine._omni_master_port == 12345
 
-    def test_stage_configs_path_drives_pipeline_policy(self, mocker: MockerFixture, tmp_path):
-        stage_configs_path = tmp_path / "resolved-qwen3.yaml"
-        stage_configs_path.write_text("stages: []\n")
-        pipeline = SimpleNamespace(
-            endpoint_restrictions=("restricted",),
-            duplex_runtime_extension=None,
-            duplex_serving_adapter=None,
-            duplex_control_enabled=False,
-        )
-        get_pipeline = mocker.patch(
-            "vllm_omni.engine.async_omni_engine.StageConfigFactory.get_pipeline_config",
-            return_value=pipeline,
-        )
-
-        engine = self._make_engine_no_thread(
-            mocker,
-            stage_configs_path=str(stage_configs_path),
-        )
-
-        assert engine.endpoint_restrictions == ("restricted",)
-        assert get_pipeline.call_args.kwargs["deploy_config_path"] == str(stage_configs_path)
-
     def test_omni_master_server_starts_as_none(self, mocker: MockerFixture):
         engine = self._make_engine_no_thread(mocker)
         assert not hasattr(engine, "_omni_master_server")
