@@ -2165,7 +2165,7 @@ class TestPlatformOverrides:
     """Test platform-specific deploy config overrides."""
 
     def test_qwen3_tts_rocm_disables_code2wav_outer_cudagraph(self):
-        deploy_path = Path(__file__).parent.parent / "vllm_omni" / "deploy" / "qwen3_tts.yaml"
+        deploy_path = Path(get_deploy_config_path("qwen3_tts.yaml"))
 
         base = load_deploy_config(deploy_path)
         assert base.stages[0].enforce_eager is None
