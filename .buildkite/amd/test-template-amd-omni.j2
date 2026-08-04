@@ -6,6 +6,60 @@
 {% set docker_image_amd = "rocm/vllm-omni:$BUILDKITE_COMMIT" %}
 {% set default_working_dir = "/app/vllm-omni" %}
 
+{# MI300 runs tests natively in Kubernetes; Docker-in-Docker is unavailable. #}
+{% macro amd_native_k8s_plugin(indent, step) -%}
+{{ indent }}plugins:
+{{ indent }}  - kubernetes:
+{{ indent }}      podSpecPatch:
+{{ indent }}        automountServiceAccountToken: false
+{{ indent }}        securityContext:
+{{ indent }}          seccompProfile:
+{{ indent }}            type: RuntimeDefault
+{{ indent }}        imagePullSecrets:
+{{ indent }}          - name: docker-config
+{{ indent }}        containers:
+{{ indent }}          - name: container-0
+{{ indent }}            image: {{ docker_image_amd }}
+{{ indent }}            imagePullPolicy: Always
+{{ indent }}            securityContext:
+{{ indent }}              allowPrivilegeEscalation: false
+{{ indent }}              capabilities:
+{{ indent }}                add:
+{{ indent }}                  - IPC_LOCK
+{{ indent }}            resources:
+{{ indent }}              limits:
+{{ indent }}                amd.com/gpu: "{{ step.agent_pool[-1:] }}"
+{{ indent }}              requests:
+{{ indent }}                amd.com/gpu: "{{ step.agent_pool[-1:] }}"
+{{ indent }}            volumeMounts:
+{{ indent }}              - name: devshm
+{{ indent }}                mountPath: /dev/shm
+{{ indent }}            env:
+{{ indent }}              - name: AMD_CI_RUNTIME
+{{ indent }}                value: native
+{{ indent }}              - name: NATIVE_CI
+{{ indent }}                value: "true"
+{{ indent }}              - name: VLLM_CI_DOCKER_DISABLED
+{{ indent }}                value: "1"
+{{ indent }}              - name: VLLM_CI_EXPECTED_GPU_COUNT
+{{ indent }}                value: "{{ step.agent_pool[-1:] }}"
+{{ indent }}              - name: HF_HOME
+{{ indent }}                value: /home/buildkite-agent/huggingface
+{{ indent }}              - name: MIOPEN_DEBUG_CONV_DIRECT
+{{ indent }}                value: "0"
+{{ indent }}              - name: MIOPEN_DEBUG_CONV_GEMM
+{{ indent }}                value: "0"
+{{ indent }}              - name: VLLM_ROCM_USE_AITER
+{{ indent }}                value: "0"
+{{ indent }}              - name: PYTORCH_ROCM_ARCH
+{{ indent }}                value: ""
+{{ indent }}        volumes:
+{{ indent }}          - name: devshm
+{{ indent }}            emptyDir:
+{{ indent }}              medium: Memory
+{{ indent }}              sizeLimit: 16Gi
+{%- endmacro %}
+
 {% if env %}
 env:
 {% for name in env %}
@@ -55,11 +109,23 @@ steps:
           {% else %}
           queue: amd_mi300_1
           {% endif %}
+{{ amd_native_k8s_plugin("        ", step) }}
 {% set cmd_body = (step.command or (step.commands | join("\n"))) | trim %}
 {% set indented_cmd = cmd_body | replace("\n", "\n            ") %}
         command: bash .buildkite/amd/scripts/run-amd-test.sh
         env:
-          DOCKER_BUILDKIT: "1"
+          AMD_CI_RUNTIME: "native"
+          NATIVE_CI: "true"
+          VLLM_CI_DOCKER_DISABLED: "1"
+          VLLM_CI_EXPECTED_GPU_COUNT: "{{ step.agent_pool[-1:] }}"
+          VLLM_CI_REQUIRE_PERSISTENT_HF_CACHE: "1"
+          HF_HOME: "/home/buildkite-agent/huggingface"
+          HF_HUB_DOWNLOAD_TIMEOUT: "300"
+          HF_HUB_ETAG_TIMEOUT: "60"
+          MIOPEN_DEBUG_CONV_DIRECT: "0"
+          MIOPEN_DEBUG_CONV_GEMM: "0"
+          VLLM_ROCM_USE_AITER: "0"
+          PYTORCH_ROCM_ARCH: ""
 {% if step.env %}
 {% for name in step.env %}
           {{ name }}: "{{ step.env[name] }}"
@@ -102,11 +168,23 @@ steps:
       {% else %}
       queue: amd_mi300_1
       {% endif %}
+{{ amd_native_k8s_plugin("    ", step) }}
 {% set cmd_body = (step.command or (step.commands | join("\n"))) | trim %}
 {% set indented_cmd = cmd_body | replace("\n", "\n        ") %}
     command: bash .buildkite/amd/scripts/run-amd-test.sh
     env:
-      DOCKER_BUILDKIT: "1"
+      AMD_CI_RUNTIME: "native"
+      NATIVE_CI: "true"
+      VLLM_CI_DOCKER_DISABLED: "1"
+      VLLM_CI_EXPECTED_GPU_COUNT: "{{ step.agent_pool[-1:] }}"
+      VLLM_CI_REQUIRE_PERSISTENT_HF_CACHE: "1"
+      HF_HOME: "/home/buildkite-agent/huggingface"
+      HF_HUB_DOWNLOAD_TIMEOUT: "300"
+      HF_HUB_ETAG_TIMEOUT: "60"
+      MIOPEN_DEBUG_CONV_DIRECT: "0"
+      MIOPEN_DEBUG_CONV_GEMM: "0"
+      VLLM_ROCM_USE_AITER: "0"
+      PYTORCH_ROCM_ARCH: ""
 {% if step.env %}
 {% for name in step.env %}
       {{ name }}: "{{ step.env[name] }}"
