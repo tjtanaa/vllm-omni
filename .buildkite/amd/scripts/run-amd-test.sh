@@ -1,8 +1,8 @@
 #!/bin/bash
 # vllm-omni customized version
 # Based on: vllm/.buildkite/scripts/hardware_ci/run-amd-test.sh
-# Last synced: 2025-12-15
-# Modifications: docker image name for vllm-omni
+# Last synced: 2026-08-04
+# Modifications: docker image name and workspace for vllm-omni
 
 # This script runs test inside the corresponding ROCm docker container.
 set -o pipefail
@@ -75,8 +75,8 @@ HF_CACHE="$(realpath ~)/huggingface"
 mkdir -p "${HF_CACHE}"
 HF_MOUNT="/root/.cache/huggingface"
 
-if [[ -n "${TEST_COMMAND:-}" ]]; then
-    commands="$TEST_COMMAND"
+if [[ -n "${TEST_COMMANDS:-}" ]]; then
+    commands="$TEST_COMMANDS"
 else
     commands="$@"
 fi
