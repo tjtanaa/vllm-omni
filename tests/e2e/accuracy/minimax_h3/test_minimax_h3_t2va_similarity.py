@@ -26,7 +26,7 @@ from tests.helpers.runtime import OmniServer
 pytestmark = [pytest.mark.benchmark, pytest.mark.diffusion, pytest.mark.full_model]
 
 MODEL_REPO_ID = "MiniMaxAI/MiniMax-H3"
-MODEL_REVISION = "73372e6cf53e414edd3ab03e357717fb0602e758"
+MODEL_REVISION = "b8b09e34f8d2b9d1b7a51982ccb26ae2b8b9ef08"
 MODEL_ENV_VAR = "VLLM_TEST_MINIMAX_H3_FL2VA_MODEL"
 REFERENCE_VIDEO_URL = f"https://huggingface.co/{MODEL_REPO_ID}/resolve/{MODEL_REVISION}/assets/t2va.mp4"
 

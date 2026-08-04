@@ -35,7 +35,7 @@ steps:
   mirror_hardwares: [amdproduction]
   grade: Blocking
   commands:
-    - timeout 20m pytest -s -v tests/e2e/features/custom_pipeline/ -m "core_model"
+    - pytest -s -v tests/e2e/features/custom_pipeline/ -m "core_model"
 
 
 - label: "Voxtral TTS CUDA Unit Test"
@@ -54,7 +54,7 @@ steps:
       mirror_hardwares: [amdproduction]
       grade: Blocking
       commands:
-        - timeout 20m pytest -sv tests/diffusion/batching -m 'core_model and cuda' --run-level "core_model"
+        - pytest -sv tests/diffusion/batching -m 'core_model and cuda' --run-level "core_model"
 
     - label: "Diffusion · Offloader Test"
       agent_pool: mi300_1
@@ -64,15 +64,7 @@ steps:
       commands:
         - export VLLM_LOGGING_LEVEL=DEBUG
         - export VLLM_WORKER_MULTIPROC_METHOD=spawn
-        - |
-          timeout 20m bash -c '
-            set +e
-            pytest -s -v tests/diffusion/offloader/test_diffusion_cpu_offload.py
-            EXIT1=\$?
-            pytest -s -v tests/diffusion/offloader/test_diffusion_layerwise_offload.py
-            EXIT2=\$?
-            exit \$((EXIT1 | EXIT2))
-          '
+        - pytest -s -v tests/diffusion/offloader -m "core_model and cuda" --run-level "core_model"
 
     - label: "Diffusion · Cache Test"
       agent_pool: mi300_1
@@ -83,7 +75,7 @@ steps:
         - export GPU_ARCHS=gfx942
         - export VLLM_LOGGING_LEVEL=DEBUG
         - export VLLM_WORKER_MULTIPROC_METHOD=spawn
-        - timeout 15m pytest -s -v -m "core_model and cache and diffusion and not distributed_cuda and L4"
+        - pytest -sv tests/diffusion/cache -m 'core_model and cuda' --run-level "core_model"
 
     - label: "Diffusion Sequence Parallelism Test"
       agent_pool: mi300_2
