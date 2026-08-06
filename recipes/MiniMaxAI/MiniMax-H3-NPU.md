@@ -1,7 +1,7 @@
 # MiniMax H3 on Ascend NPU
 
-> Joint video and audio generation with text, first-frame, image/audio, or
-> multi-video conditions — Ascend NPU deployment guide
+> Joint video and audio generation with text, first/last keyframes, and mixed
+> image/video/audio references — Ascend NPU deployment guide
 
 ## Summary
 
@@ -50,7 +50,8 @@ uv pip install -e .
 ```
 
 Install the **mindie-sd** operator library to enable Ascend-optimized fused
-operators (`adalayernorm`, etc.):
+operators (`adalayernorm`, etc.) and the RainFusion `rf_v2` block-sparse
+attention kernel:
 
 ```bash
 git clone https://gitcode.com/Ascend/MindIE-SD.git && cd MindIE-SD
@@ -111,6 +112,28 @@ Do not add `--enforce-eager`. The first request includes regional
 compilation; warm the server once before measuring steady-state latency.
 H3 is CFG-distilled, so `--cfg-parallel-size` must remain 1.
 
+### Optional optimizations
+
+Two independent optimizations may be enabled on top of the configuration
+above. Both are validated for T2VA only.
+
+**RainFusion block-sparse attention** — switch the attention backend, keeping
+every other flag unchanged:
+
+```bash
+  --diffusion-attention-backend RAINFUSION_ATTN
+```
+
+**INT8 online quantization** — add one flag to either command above:
+
+```bash
+  --quantization int8
+```
+
+Keep `--ring 1` when using RainFusion: the `rf_v2` kernel ranks key blocks
+over the whole sequence, so ring parallelism would split away the keys it
+needs. Scale with `--usp` instead.
+
 To serve Ref2VA, stop the FL2VA server and restart with:
 
 ```bash
@@ -149,14 +172,21 @@ throughput guarantee.
 - H3 currently executes one generation request per diffusion batch.
 - The first regional-compile request is a warmup and should not be included
   in steady-state performance measurements.
-- Image+audio Ref2VA accepts exactly one image and one audio reference.
-- Video Ref2VA accepts one or more video files, but not an additional
-  standalone audio reference.
+- The official H3 input matrix and media limits are documented in the [GPU
+  recipe](MiniMax-H3.md#official-input-matrix-and-limits); this NPU path uses
+  the same HTTP request contract.
 - VAE patch parallelism requires size 1 or the full DiT group size and
   supports the H3 native `tile` mode only.
+- RainFusion block-sparse attention and INT8 quantization are validated for
+  T2VA only; use the BF16 dense configuration for FL2VA and Ref2VA.
+- Online quantization cannot be combined with distributed layerwise offload
+  while AllGather is enabled; pass `--dlo-no-use-allgather` in that case.
 
 ## Additional resources
 
 - [MiniMax-H3.md](MiniMax-H3.md) — full GPU guide
+- [Attention backends § RAINFUSION_ATTN](../../docs/user_guide/diffusion/attention_backends.md#rainfusion_attn-backend-and-block-sparse-video-attention)
+  — RainFusion knobs and tuning
+- [Int8 quantization](../../docs/user_guide/quantization/int8.md)
 - [Supported models](../../docs/models/supported_models.md)
 - [Video API](../../docs/serving/videos_api.md)
