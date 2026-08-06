@@ -424,9 +424,7 @@ def ar_diffusion_paged_attention(
         # requires 128-token blocks, while AR-Diffusion uses frame-aligned
         # 16-token blocks, so gather the visible blocks on-device first.
         flash_attn_varlen_func = _rocm_flash_attn_varlen_func()
-        cu_seqlens_k = torch.cat(
-            [seq_lens.new_zeros(1), torch.cumsum(seq_lens, dim=0, dtype=torch.int32)]
-        )
+        cu_seqlens_k = torch.cat([seq_lens.new_zeros(1), torch.cumsum(seq_lens, dim=0, dtype=torch.int32)])
         positions = torch.arange(int(max_seq_len), device=query_flat.device)
         logical_blocks = torch.div(positions, key_cache.shape[1], rounding_mode="floor")
         offsets = positions % key_cache.shape[1]
