@@ -14,6 +14,8 @@ steps:
       grade: Blocking
       commands:
         - export VLLM_ROCM_USE_AITER=0
+        # ignore test_teacache_extractors.py because it use rocm gemm kernel from vLLM
+        # that is not supported on CPU
         - "pytest -sv tests/model_executor -m 'core_model and cpu' --cov=vllm_omni --cov-report=term-missing:skip-covered --cov-report=xml"
 
     - label: "Simple · Diffusion Test"
@@ -23,6 +25,8 @@ steps:
       grade: Blocking
       commands:
         - export VLLM_ROCM_USE_AITER=0
+        # ignore test_teacache_extractors.py because it use rocm gemm kernel from vLLM
+        # that is not supported on CPU
         - "pytest -sv tests/diffusion -m 'core_model and cpu'  --ignore=tests/diffusion/cache/test_teacache_extractors.py --cov=vllm_omni --cov-report=term-missing:skip-covered --cov-report=xml"
 
     - label: "Simple · Engine&Entrypoints Test"
@@ -41,6 +45,8 @@ steps:
       grade: Blocking
       commands:
         - export VLLM_ROCM_USE_AITER=0
+        # ignore test_teacache_extractors.py because it use rocm gemm kernel from vLLM
+        # that is not supported on CPU
         - "pytest -sv tests/ -m 'core_model and cpu' --ignore=tests/diffusion --ignore=tests/model_executor --ignore=tests/entrypoints --ignore=tests/engine  --ignore=tests/diffusion/cache/test_teacache_extractors.py --cov=vllm_omni --cov-report=term-missing:skip-covered --cov-report=xml"
 
 - label: "Custom Pipeline Test"
