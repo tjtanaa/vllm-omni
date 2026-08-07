@@ -43,6 +43,12 @@ server_params = [
                 "--num-gpus",
                 "1",
             ],
+            # A cold-cache Z-Image load can take slightly more than the
+            # OmniServer fixture's 900s default on CI (weights alone have been
+            # observed at ~690s and full orchestrator readiness at ~906s).
+            # Match the large-model offline runner's startup allowance without
+            # weakening timeout detection for every online-serving test.
+            init_timeout=1800,
         ),
         id="zimage_turbo_lora",
     ),
