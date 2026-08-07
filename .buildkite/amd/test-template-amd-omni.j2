@@ -148,6 +148,9 @@ steps:
 {% endif %}
             {{ indented_cmd | safe }}
         priority: 100
+{% if step.parallelism %}
+        parallelism: {{ step.parallelism }}
+{% endif %}
         {% if step.timeout_in_minutes %}
         timeout_in_minutes: {{ step.timeout_in_minutes }}
         {% endif %}
@@ -207,6 +210,9 @@ steps:
 {% endif %}
         {{ indented_cmd | safe }}
     priority: 100
+{% if step.parallelism %}
+    parallelism: {{ step.parallelism }}
+{% endif %}
     {% if step.timeout_in_minutes %}
     timeout_in_minutes: {{ step.timeout_in_minutes }}
     {% endif %}
