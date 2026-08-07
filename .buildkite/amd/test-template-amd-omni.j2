@@ -151,6 +151,12 @@ steps:
 {% if step.parallelism %}
         parallelism: {{ step.parallelism }}
 {% endif %}
+{% if step.artifact_paths %}
+        artifact_paths:
+{% for path in step.artifact_paths %}
+          - "{{ path }}"
+{% endfor %}
+{% endif %}
         {% if step.timeout_in_minutes %}
         timeout_in_minutes: {{ step.timeout_in_minutes }}
         {% endif %}
@@ -212,6 +218,12 @@ steps:
     priority: 100
 {% if step.parallelism %}
     parallelism: {{ step.parallelism }}
+{% endif %}
+{% if step.artifact_paths %}
+    artifact_paths:
+{% for path in step.artifact_paths %}
+      - "{{ path }}"
+{% endfor %}
 {% endif %}
     {% if step.timeout_in_minutes %}
     timeout_in_minutes: {{ step.timeout_in_minutes }}
