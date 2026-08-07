@@ -24,6 +24,7 @@ from safetensors.torch import save_file
 
 from tests.helpers.mark import hardware_test
 from tests.helpers.runtime import OmniServer, OmniServerParams
+from vllm_omni.platforms import current_omni_platform
 
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 
@@ -42,9 +43,13 @@ server_params = [
             server_args=[
                 "--num-gpus",
                 "1",
+                # This test validates LoRA switching, not compiled execution.
+                # Avoid slow torch.compile setup on ROCm while retaining the
+                # default compiled path on other platforms.
+                *(["--enforce-eager"] if current_omni_platform.is_rocm() else []),
             ],
             # A cold-cache Z-Image load can take slightly more than the
-            # OmniServer fixture's 900s default on CI (weights alone have been
+            # orchestrator's 900s default on CI (weights alone have been
             # observed at ~690s and full orchestrator readiness at ~906s).
             # Match the large-model offline runner's startup allowance without
             # weakening timeout detection for every online-serving test.
