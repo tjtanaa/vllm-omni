@@ -23,6 +23,11 @@ from vllm.model_executor.layers.quantization.base_config import (
 )
 from vllm.transformers_utils.repo_utils import get_model_path
 
+from vllm_omni.diffusion.diffusion_kv.config import (
+    DiffusionKVCacheMode,
+    parse_diffusion_kv_cache_mode,
+)
+from vllm_omni.diffusion.lora.manager import LoRABackend
 from vllm_omni.diffusion.model_metadata import get_diffusion_model_metadata
 from vllm_omni.diffusion.utils.network_utils import is_port_available
 from vllm_omni.errors import client_error_metadata
@@ -412,14 +417,14 @@ class DiffusionCacheConfig:
         >>> # Access via attribute
         >>> print(config.rel_l1_thresh)  # 0.3 (from dict)
         >>> print(config.Fn_compute_blocks)  # 8 (default)
-        >>> # Empty dict uses all defaults
+        >>> # Empty dict defers model-specific defaults to the TeaCache backend
         >>> default_config = DiffusionCacheConfig.from_dict({})
-        >>> print(config.rel_l1_thresh)  # 0.2 (default)
+        >>> print(default_config.rel_l1_thresh)  # None
     """
 
     # TeaCache parameters [tea_cache only]
-    # Default: 0.2 provides ~1.5x speedup with minimal quality loss (optimal balance)
-    rel_l1_thresh: float = 0.2
+    # None defers to the model-specific TeaCache default (0.2 fallback).
+    rel_l1_thresh: float | None = None
     coefficients: list[float] | None = None  # Uses model-specific defaults if None
 
     # MagCache parameters [mag_cache only]
@@ -541,16 +546,15 @@ def resolve_model_class_name(model: str | None, diffusion_load_format: str = "de
     """
     from vllm.transformers_utils.config import get_hf_file_to_dict
 
+    from vllm_omni.diffusion.utils.hf_utils import get_diffusion_model_index
+
     if not model:
         return None
 
     is_lance_subfolder = os.path.basename(str(model).rstrip("/")) in {"Lance_3B", "Lance_3B_Video"}
 
-    # Diffusers models: read _class_name from model_index.json.
-    try:
-        model_index = get_hf_file_to_dict("model_index.json", model)
-    except Exception:
-        model_index = None
+    # Diffusers models: read _class_name from the pipeline index.
+    model_index = get_diffusion_model_index(model)
     if model_index is not None:
         return model_index.get("_class_name")
     if diffusion_load_format == "diffusers":
@@ -603,6 +607,10 @@ class OmniDiffusionConfig:
 
     model_class_name: str | None = None
 
+    # Optional model-defined startup task. Pipelines may use this to select
+    # task-specific components or weights before serving requests.
+    task_type: str | None = None
+
     dtype: torch.dtype = torch.bfloat16
 
     model_config: dict[str, Any] = field(default_factory=dict)
@@ -610,6 +618,7 @@ class OmniDiffusionConfig:
 
     # Attention
     diffusion_attention_config: "AttentionConfig" = field(default_factory=lambda: AttentionConfig())
+    fa_deterministic: bool = False
 
     # Running mode
     # mode: ExecutionMode = ExecutionMode.INFERENCE
@@ -654,6 +663,9 @@ class OmniDiffusionConfig:
     # the string form only).
     engine_backend: str | type = "default"
 
+    # Local Diffusion KV ownership and cache-layout mode.
+    diffusion_kv_mode: DiffusionKVCacheMode = DiffusionKVCacheMode.DENSE_LEGACY
+
     # Optional override for the diffusion model runner class (import path).
     # Precedence in the worker: this override > the runner declared by the
     # selected engine class (``default_diffusion_model_runner_cls``) > the
@@ -671,8 +683,9 @@ class OmniDiffusionConfig:
     # pipeline_config: PipelineConfig = field(default_factory=PipelineConfig, repr=False)
 
     # LoRA parameters
-    lora_path: str | None = None
-    lora_scale: float = 1.0
+    lora_path: str | list[str] | None = None
+    lora_scale: float | list[float] = 1.0
+    lora_backend: LoRABackend = LoRABackend.PEFT  # available choices: ["peft", "distill"]
     max_cpu_loras: int | None = None
 
     output_type: str = "pil"
@@ -919,10 +932,28 @@ class OmniDiffusionConfig:
             )
         if not isinstance(self.diffusion_compile_dynamic, bool):
             raise TypeError(f"diffusion_compile_dynamic must be a bool, got {type(self.diffusion_compile_dynamic)!r}")
+        self.diffusion_kv_mode = parse_diffusion_kv_cache_mode(self.diffusion_kv_mode)
+
+        if self.omni_kv_config is None:
+            self.omni_kv_config = {}
+        elif isinstance(self.omni_kv_config, Mapping):
+            self.omni_kv_config = dict(self.omni_kv_config)
+        else:
+            raise TypeError("omni_kv_config must be a mapping")
+        if self.diffusion_kv_mode is DiffusionKVCacheMode.PAGED_SCHEDULER and self.omni_kv_config.get(
+            "need_recv_cache", False
+        ):
+            raise ValueError(
+                "paged_scheduler Diffusion KV does not support imported AR KV in Phase 1; "
+                "disable need_recv_cache until connector-aware admission is implemented"
+            )
+
         self.master_port = self._resolve_master_port()
         self.request_batch_max_wait_ms = float(self.request_batch_max_wait_ms or 0.0)
-        if self.request_batch_max_wait_ms < 0:
-            raise ValueError(f"request_batch_max_wait_ms must be non-negative, got {self.request_batch_max_wait_ms}.")
+        if not math.isfinite(self.request_batch_max_wait_ms) or self.request_batch_max_wait_ms < 0:
+            raise ValueError(
+                f"request_batch_max_wait_ms must be a finite non-negative number, got {self.request_batch_max_wait_ms}."
+            )
 
         if isinstance(self.profiler_config, dict):
             from vllm.config import ProfilerConfig
@@ -1143,18 +1174,23 @@ class OmniDiffusionConfig:
     def enrich_config(self) -> None:
         """Load model metadata from HuggingFace and populate config fields.
 
-        Diffusers-style models expose ``model_index.json`` with ``_class_name``.
+        Diffusers-style models expose a pipeline index with ``_class_name``.
         Non-diffusers models (e.g. Bagel, NextStep) only have ``config.json``,
         so we fall back to reading that and mapping model_type manually.
         """
         from vllm.transformers_utils.config import get_hf_file_to_dict
+
+        from vllm_omni.diffusion.utils.hf_utils import get_diffusion_model_index
 
         # Default model_class_name for diffusers adapter
         if self.model_class_name is None and self.diffusion_load_format == "diffusers":
             self.model_class_name = "DiffusersAdapterPipeline"
 
         try:
-            config_dict = get_hf_file_to_dict("model_index.json", self.model)
+            config_dict = get_diffusion_model_index(
+                self.model,
+                revision=self.revision,
+            )
             if config_dict is not None:
                 if self.model_class_name is None:
                     self.model_class_name = config_dict.get("_class_name", None)
@@ -1169,7 +1205,7 @@ class OmniDiffusionConfig:
                         self.diffusers_pipeline_cls = getattr(diffusers, diffusers_pipeline_cls_name)
                     except (KeyError, AttributeError) as exc:
                         logger.warning(
-                            "Could not find valid _class_name for diffusers pipeline in model_index.json: %s. "
+                            "Could not find a valid _class_name in the Diffusers pipeline index: %s. "
                             "Without the underlying pipeline class the dummy run may omit required inputs.",
                             exc,
                         )
@@ -1182,16 +1218,16 @@ class OmniDiffusionConfig:
                     else:
                         self.set_tf_model_config(TransformerConfig())
             else:
-                raise FileNotFoundError("model_index.json not found")
+                raise FileNotFoundError("Diffusers pipeline index not found")
         except (AttributeError, OSError, ValueError, FileNotFoundError):
             # Skip transformer config loading for diffusers adapter
             # (non-DiT models don't have a separate transformer folder/config)
             if self.diffusion_load_format == "diffusers":
                 self.set_tf_model_config(TransformerConfig())
                 logger.warning(
-                    "Could not find valid model_index.json per diffusers format. "
+                    "Could not find a valid pipeline index per Diffusers format. "
                     "This model is likely unsupported by the diffusers backend. "
-                    "Also, without knowing the underlying diffusers pipeline class from model_index.json, "
+                    "Also, without knowing the underlying pipeline class from its index, "
                     "the dummy run will input only text prompt, which may cause errors for pipelines "
                     "that require additional inputs."
                 )
@@ -1207,7 +1243,7 @@ class OmniDiffusionConfig:
                         self.set_tf_model_config(TransformerConfig())
                         self.update_multimodal_support()
                         return
-                    raise ValueError(f"Could not find config.json or model_index.json for model {self.model}")
+                    raise ValueError(f"Could not find config.json or a Diffusers pipeline index for {self.model}")
 
                 self.set_tf_model_config(TransformerConfig.from_dict(cfg))
                 model_type = cfg.get("model_type")
@@ -1433,6 +1469,10 @@ class SkipSoftmaxSpec:
         )
         if self.target_sparsity is not None and self.threshold is not None:
             raise ValueError("skip_softmax: set either target_sparsity or threshold, not both.")
+
+    @property
+    def enabled(self) -> bool:
+        return self.threshold is not None or self.target_sparsity is not None
 
 
 @dataclass

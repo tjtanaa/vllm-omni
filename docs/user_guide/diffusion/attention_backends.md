@@ -14,10 +14,10 @@ The full set of backends and their platform defaults is in the **Backend Options
 
 | Value | Notes |
 |---|---|
-| `TRTLLM_ATTN` | FlashInfer's trtllm-gen FMHA (TensorRT-LLM's generated kernels, vendored by FlashInfer). BF16, GQA native, `head_dim=128`. Datacenter Blackwell only (sm_100 / sm_103). Supports **Skip-Softmax** sparse attention — see below. Requires `flashinfer`. |
+| `TRTLLM_ATTN` | FlashInfer's trtllm-gen FMHA (TensorRT-LLM's generated kernels, vendored by FlashInfer). Dense BF16, GQA native, `head_dim=128`. Datacenter Blackwell only (sm_100 / sm_103). Packed paths can provide `cu_seqlens` directly. Supports optional **Skip-Softmax** sparse attention — see below. Requires `flashinfer`. |
 | `FLASH_ATTN` | Wraps FlashAttention 4 on Blackwell when `flash-attn-4` is installed, then falls back to FlashAttention 3/2. Default on Hopper / Ada / Ampere when a compatible FlashAttention package is installed. |
 | `CUDNN_ATTN` | Pins `sdpa_kernel([CUDNN_ATTENTION])`. Default on Blackwell (sm_10x / sm_12x) with cuDNN ≥ 9.5. Wins on mask-heavy DiTs (HunyuanVideo-1.5: 2× e2e vs SDPA). |
-| `FLASHINFER_ATTN` | Calls FlashInfer's dense `single_prefill_with_kv_cache` directly with `custom_mask` for non-causal masked attention. Used as Blackwell fallback when cuDNN is unavailable. Requires `flashinfer`. |
+| `FLASHINFER_ATTN` | Uses FlashInfer's batch-prefill wrapper and supports mixed Q/K and V input dtypes through backend-specific configuration. Used as Blackwell fallback when cuDNN is unavailable. Requires `flashinfer` >= 0.6.16rc1 for mixed-dtype configurations. |
 | `TORCH_SDPA` | PyTorch `scaled_dot_product_attention` with the default backend dispatcher. Most conservative; always available. |
 | `SAGE_ATTN` | SageAttention 2.2 — INT8-quantized attention with FP16 accumulation. Lossy but typically visually indistinguishable on diffusion outputs. Requires `sageattention`. |
 | `SAGE_ATTN_3` | Requires `sageattn3` from `SageAttention/sageattention3_blackwell`. CUDA only, intended for Blackwell GPUs, with GQA/MQA requests falling back to PyTorch SDPA. |
@@ -84,7 +84,7 @@ A backend that needs configuration exposes it as a typed field on the spec:
 When constructing `OmniDiffusionConfig` directly:
 
 ```python
-from vllm_omni.diffusion.data import AttentionConfig, AttentionSpec, OmniDiffusionConfig
+from vllm_omni.diffusion.data import AttentionConfig, AttentionSpec, AttnQuantSpec, OmniDiffusionConfig
 
 config = OmniDiffusionConfig(
     diffusion_attention_config=AttentionConfig(
@@ -99,13 +99,34 @@ config = OmniDiffusionConfig(
 
 A plain dict is also accepted and normalized to `AttentionConfig`.
 
+#### FlashInfer QK16/V8 quantized attention
+
+`FLASHINFER_ATTN` accepts quantization options through `AttentionSpec.quant`. For QK16/V8:
+
+```python
+config = OmniDiffusionConfig(
+    diffusion_attention_config=AttentionConfig(
+        default=AttentionSpec(
+            backend="FLASHINFER_ATTN",
+            quant=AttnQuantSpec(
+                dtype_qk="bfloat16",
+                dtype_vo="fp8_e4m3",
+            ),
+        ),
+    ),
+    ...,
+)
+```
+
+`dtype_qk` configures the Q and K input dtypes. `dtype_vo` configures the V input dtype.
+
 ## Platform Defaults
 
 ### Blackwell (sm_100 / sm_103 / sm_120 / sm_121)
 
 Auto-route preference, in order:
 
-1. `TRTLLM_ATTN` — on **datacenter** Blackwell (sm_100 / sm_103) when `flashinfer` is installed, the model's `head_dim` is 128, **and the model is mask-free** (see below)
+1. `TRTLLM_ATTN` — on **datacenter** Blackwell (sm_100 / sm_103) when `flashinfer` is installed, the model's `head_dim` is 128, **and the model declares a compatible packed/mask-free path**
 2. `CUDNN_ATTN` — when cuDNN ≥ 9.5 is available (ships in PyTorch 2.5+ wheels)
 3. `FLASHINFER_ATTN` — when `flashinfer` is installed but cuDNN < 9.5
 4. `FLASH_ATTN` — when `flash-attn` is installed with the Blackwell CUTE kernel
@@ -113,7 +134,7 @@ Auto-route preference, in order:
 
 `TRTLLM_ATTN` is skipped on workstation Blackwell (sm_120 / sm_121) and for any `head_dim != 128`, so those GPUs keep the `CUDNN_ATTN` route described below.
 
-`TRTLLM_ATTN` outranks `CUDNN_ATTN` on datacenter Blackwell because it is the only backend that can enable Skip-Softmax, not because its dense kernel is faster — dense, the two are comparable. It cannot honor an attention mask, so the auto-default only applies to pipelines verified mask-free (the Wan family); mask-using pipelines keep `CUDNN_ATTN`. `TRTLLM_ATTN` stays available everywhere via explicit `--diffusion-attention-backend TRTLLM_ATTN` (which raises clearly if a mask is received).
+`TRTLLM_ATTN` outranks `CUDNN_ATTN` on datacenter Blackwell for compatible packed/mask-free pipelines. Workstation Blackwell (sm_120 / sm_121) and pipelines that require attention masks retain their normal fallback.
 
 The startup log line `Defaulting to diffusion attention backend CUDNN_ATTN (Blackwell sm_120, cuDNN 91002)` confirms the route.
 
@@ -262,23 +283,20 @@ blocks — use Ulysses SP (`ring_degree=1`).
 
 ### Which geometries run sparse
 
-Sparsity is only applied when the video segment is a **multiple of 128 rows**, where the row count
-is `latent_t × (height / 32) × (width / 32)`. Otherwise `rf_v2`'s block mask and the kernel's own
-tiling disagree on the block count, and the block straddling the seam mixes video and prefix rows
-that selection may then drop. Any resolution still runs — an unaligned geometry falls back to dense
-attention and logs `RAINFUSION_ATTN staying dense` with the row count it computed — but it gets no
-speedup, so pick an aligned geometry when you want one.
+MindIE-SD rf_v2 handles arbitrary video grids by spatially rearranging video first and, when
+necessary, promoting a real-video suffix to its always-kept prefix segment. It never pads: rf_v2
+does not consume an attention mask for padded keys. The remaining video rows stay sparse, while the
+promoted rows remain visible to every query and key.
 
-Alignment is necessary, not sufficient, for good quality. `rf_v2` groups video positions into 8x8
-spatial tiles (two tiles fill one 128-row block), which is what makes a selected block a compact
-patch of the frame. When the latent `h` or `w` is not a multiple of 8, the leftover rows or columns
-are peeled off and appended as a flat run instead of being tiled, so they get pooled with spatially
-distant positions and selection can no longer rank them meaningfully. This is silent, and invisible
-to a `sparsity=0` check, because a fully populated mask does not care how blocks are grouped.
+For example, MiniMax-H3 at 1344x768 has grid `(62, 24, 42)`: its 62496 video rows leave a 32-row
+128-block residue, and its two non-8-wide latent columns form a 2928-row rearranged suffix.
+MindIE-SD promotes 2976 rows, leaving 59520 sparse rows (`465 × 128`). This keeps the block mask
+and kernel tiling aligned, at the cost of retaining more blocks.
 
-"Multiple of 8" on the latent grid means **width and height that are multiples of 256**. Aligned
-resolutions off that grid still run sparse; they just lose more fidelity at the same `sparsity`,
-which you can buy back with `start_step`.
+8x8-aligned spatial grids remain preferable for performance. A latent `h` or `w` not divisible by 8
+creates an always-kept residual suffix and lowers realized sparsity. "Multiple of 8" on the latent
+grid means **width and height that are multiples of 256**. This path requires a MindIE-SD release
+that implements protected video tails for rf_v2.
 
 ## End-to-End Benchmark (BF16, sm_120 RTX Pro 6000 Blackwell)
 
