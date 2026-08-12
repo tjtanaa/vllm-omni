@@ -35,9 +35,7 @@ MODEL = "Tongyi-MAI/Z-Image-Turbo"
 # timeout. This test validates LoRA switching rather than attention-backend or
 # compiled-execution performance, so use the eager SDPA path on ROCm only.
 ROCM_SERVER_ARGS = (
-    ["--enforce-eager", "--diffusion-attention-backend", "TORCH_SDPA"]
-    if current_omni_platform.is_rocm()
-    else []
+    ["--enforce-eager", "--diffusion-attention-backend", "TORCH_SDPA"] if current_omni_platform.is_rocm() else []
 )
 
 

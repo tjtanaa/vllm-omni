@@ -10,7 +10,7 @@ import sys
 import uuid
 from functools import lru_cache
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import websockets
