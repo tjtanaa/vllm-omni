@@ -30,6 +30,16 @@ os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 
 MODEL = "Tongyi-MAI/Z-Image-Turbo"
 
+# ROCm's default FLASH_ATTN diffusion backend resolves to AITER. On a cold CI
+# worker, JIT-building its MHA kernel can take longer than the server readiness
+# timeout. This test validates LoRA switching rather than attention-backend or
+# compiled-execution performance, so use the eager SDPA path on ROCm only.
+ROCM_SERVER_ARGS = (
+    ["--enforce-eager", "--diffusion-attention-backend", "TORCH_SDPA"]
+    if current_omni_platform.is_rocm()
+    else []
+)
+
 
 PROMPT = "a photo of a cat sitting on a laptop keyboard"
 SIZE = "256x256"
@@ -43,10 +53,7 @@ server_params = [
             server_args=[
                 "--num-gpus",
                 "1",
-                # This test validates LoRA switching, not compiled execution.
-                # Avoid slow torch.compile setup on ROCm while retaining the
-                # default compiled path on other platforms.
-                *(["--enforce-eager"] if current_omni_platform.is_rocm() else []),
+                *ROCM_SERVER_ARGS,
             ],
             # A cold-cache Z-Image load can take slightly more than the
             # orchestrator's 900s default on CI (weights alone have been
