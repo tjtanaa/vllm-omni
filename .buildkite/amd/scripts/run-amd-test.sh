@@ -2,7 +2,7 @@
 
 # Run vLLM-Omni ROCm tests directly in the MI300 Kubernetes pod. The pod's
 # container image is selected by test-template-amd-omni.j2; MI300 has no DinD.
-set -o pipefail
+set -euo pipefail
 
 : "${PYTHONFAULTHANDLER:=1}"
 : "${HF_HOME:=/home/buildkite-agent/huggingface}"
@@ -76,10 +76,28 @@ assert actual == expected, f"Expected {expected} ROCm GPU(s), found {actual}"
 PY
 
 echo "Commands:${commands}"
-/bin/bash -o pipefail -c "${commands}"
-exit_code=$?
-if [[ ${exit_code} -eq 5 ]]; then
-    echo "Pytest collected no tests; treating exit code 5 as success."
+if /bin/bash -o pipefail -c '
+set -E
+test_status=0
+trap '\''
+    command_status=$?
+    # Keep running subsequent commands, but retain a failure for the final exit.
+    # Prefer a test failure over pytest "no tests collected" when both occur.
+    if (( test_status == 0 || (test_status == 5 && command_status != 5) )); then
+        test_status=${command_status}
+    fi
+'\'' ERR
+eval "$1"
+exit "${test_status}"
+' _ "${commands}"; then
+    exit 0
+else
+    exit_code=$?
+fi
+
+if [[ ${exit_code} -eq 5 && "${VLLM_CI_ALLOW_NO_TESTS:-0}" == "1" ]]; then
+    echo "Pytest collected no tests; VLLM_CI_ALLOW_NO_TESTS=1, treating exit code 5 as success."
     exit 0
 fi
+
 exit "${exit_code}"
