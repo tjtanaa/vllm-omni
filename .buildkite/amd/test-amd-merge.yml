@@ -21,7 +21,7 @@ steps:
 
     - label: "Simple · Diffusion Test · Shard %N/%t"
       agent_pool: mi300_1
-      parallelism: 2
+      parallelism: 4
       depends_on: amd-build
       mirror_hardwares: [amdproduction]
       grade: Blocking
@@ -184,7 +184,7 @@ steps:
 
     - label: "Qwen3-TTS CustomVoice E2E Test · Shard %N/%t"
       agent_pool: mi300_1
-      parallelism: 2
+      parallelism: 4
       depends_on: amd-build
       mirror_hardwares: [amdproduction]
       grade: Blocking
