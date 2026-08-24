@@ -81,7 +81,7 @@ steps:
             exit \$((EXIT1 | EXIT2))
           '
 
-    - label: "Diffusion Sequence Parallelism Test (Need 4 GPUs)"
+    - label: "Diffusion Sequence Parallelism Test (Need 4 GPUs) · Shard 1/2"
       agent_pool: mi300_4
       depends_on: amd-build
       mirror_hardwares: [amdproduction]
@@ -89,8 +89,17 @@ steps:
       commands:
         - export VLLM_LOGGING_LEVEL=DEBUG
         - export VLLM_WORKER_MULTIPROC_METHOD=spawn
-        - timeout 20m pytest -s -v tests/diffusion/distributed/test_sequence_parallel.py
-        - timeout 20m pytest -s -v tests/diffusion/distributed/test_ulysses_uaa_perf.py
+        - pytest -s -v tests/diffusion/distributed/test_sequence_parallel.py
+
+    - label: "Diffusion Sequence Parallelism Test (Need 4 GPUs) · Shard 2/2"
+      agent_pool: mi300_4
+      depends_on: amd-build
+      mirror_hardwares: [amdproduction]
+      grade: Blocking
+      commands:
+        - export VLLM_LOGGING_LEVEL=DEBUG
+        - export VLLM_WORKER_MULTIPROC_METHOD=spawn
+        - pytest -s -v tests/diffusion/distributed/test_ulysses_uaa_perf.py
 
     # merge-only tests
     - label: "Diffusion Tensor Parallelism Test"
