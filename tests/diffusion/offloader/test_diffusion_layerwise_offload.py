@@ -16,9 +16,11 @@ from vllm_omni.inputs.data import OmniDiffusionSamplingParams
 from vllm_omni.platforms import current_omni_platform
 
 AUDIO_MODEL: dict[str, dict[str, int | None]] = {
-    # ROCm's MIOpen workspace selection has higher run-to-run variance than
-    # CUDA, while layerwise offload still consistently saves at least 1 GB.
-    "stabilityai/stable-audio-open-1.0": {"cuda": 1500, "rocm": 1000},
+    # The inference peak includes backend workspaces as well as model weights.
+    # ROCm's MIOpen/AITER workspace selection and allocator reuse have higher
+    # run-to-run variance than CUDA, so use a conservative floor that still
+    # catches a disabled/no-op layerwise offloader.
+    "stabilityai/stable-audio-open-1.0": {"cuda": 1500, "rocm": 512},
 }
 
 IMAGE_VIDEO_MODELS: dict[str, dict[str, int | None]] = {
