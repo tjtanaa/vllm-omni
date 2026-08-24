@@ -194,7 +194,14 @@ steps:
             export VLLM_LOGGING_LEVEL=DEBUG
             export VLLM_WORKER_MULTIPROC_METHOD=spawn
             export VLLM_ALLOW_LONG_MAX_MODEL_LEN="1"
-            pytest -s -v tests/e2e/online_serving/test_qwen3_tts_customvoice.py tests/e2e/offline_inference/test_qwen3_tts_customvoice.py -m "advanced_model" --run-level "advanced_model" --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT --shard-id=$$BUILDKITE_PARALLEL_JOB
+            TESTS=(
+              "tests/e2e/online_serving/test_qwen3_tts_customvoice.py::test_default_cuda_graph_startup[async_chunk]"
+              "tests/e2e/online_serving/test_qwen3_tts_customvoice.py::test_text_to_audio_001[async_chunk]"
+              "tests/e2e/online_serving/test_qwen3_tts_customvoice.py::test_text_to_audio_002[async_chunk]"
+              "tests/e2e/offline_inference/test_qwen3_tts_customvoice.py::test_text_to_audio_001[no_cuda_graph]"
+            )
+            TEST="$${TESTS[$$BUILDKITE_PARALLEL_JOB]}"
+            pytest -s -v "$$TEST" -m "advanced_model" --run-level "advanced_model"
           '
 
     - label: "Qwen3-TTS Base E2E Test"
