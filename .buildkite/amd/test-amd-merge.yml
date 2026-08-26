@@ -68,19 +68,11 @@ steps:
       depends_on: amd-build
       mirror_hardwares: [amdproduction]
       grade: Blocking
-      artifact_paths:
-        - offload-memory-debug.log
       commands:
         - export VLLM_LOGGING_LEVEL=DEBUG
-        # Diagnostic logging for ROCm inference-workspace variance. Keep the
-        # allocator enabled so this run reproduces normal CI behavior.
-        - export VLLM_DEBUG_WORKSPACE=1
-        - export MIOPEN_ENABLE_LOGGING=1
-        - export MIOPEN_ENABLE_LOGGING_CMD=1
         - export VLLM_WORKER_MULTIPROC_METHOD=spawn
         - |
           bash -c '
-            exec > >(tee offload-memory-debug.log) 2>&1
             set +e
             pytest -s -v tests/diffusion/offloader/test_diffusion_cpu_offload.py
             EXIT1=\$?
@@ -196,9 +188,10 @@ steps:
       depends_on: amd-build
       mirror_hardwares: [amdproduction]
       grade: Blocking
+      timeout_in_minutes: 50
       commands:
         - |
-          bash -c '
+          timeout --signal=TERM --kill-after=2m 40m bash -c '
             export VLLM_LOGGING_LEVEL=DEBUG
             export VLLM_WORKER_MULTIPROC_METHOD=spawn
             export VLLM_ALLOW_LONG_MAX_MODEL_LEN="1"

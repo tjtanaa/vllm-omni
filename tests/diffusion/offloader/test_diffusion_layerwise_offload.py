@@ -17,9 +17,9 @@ from vllm_omni.platforms import current_omni_platform
 
 AUDIO_MODEL: dict[str, dict[str, int | None]] = {
     # The inference peak includes backend workspaces as well as model weights.
-    # ROCm's MIOpen/AITER workspace selection and allocator reuse have higher
-    # run-to-run variance than CUDA, so use a conservative floor that still
-    # catches a disabled/no-op layerwise offloader.
+    # On ROCm, large MIOpen workspaces and allocator fragmentation can mask the
+    # resident-weight reduction, so use a conservative floor that still catches
+    # a disabled/no-op layerwise offloader.
     "stabilityai/stable-audio-open-1.0": {"cuda": 1500, "rocm": 512},
 }
 
