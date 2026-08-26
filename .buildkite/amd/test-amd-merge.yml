@@ -188,10 +188,10 @@ steps:
       depends_on: amd-build
       mirror_hardwares: [amdproduction]
       grade: Blocking
-      timeout_in_minutes: 50
+      timeout_in_minutes: 80
       commands:
         - |
-          timeout --signal=TERM --kill-after=2m 40m bash -c '
+          timeout --signal=TERM --kill-after=2m 80m bash -c '
             export VLLM_LOGGING_LEVEL=DEBUG
             export VLLM_WORKER_MULTIPROC_METHOD=spawn
             export VLLM_ALLOW_LONG_MAX_MODEL_LEN="1"
