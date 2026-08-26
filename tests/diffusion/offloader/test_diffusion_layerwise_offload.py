@@ -9,8 +9,8 @@ import pytest
 import torch
 from vllm.distributed.parallel_state import cleanup_dist_env_and_memory
 
-from tests.helpers.env import DeviceMemoryMonitor
 from tests.helpers.mark import hardware_test
+from tests.helpers.monitor import DeviceMemoryMonitor
 from tests.helpers.runtime import OmniRunner
 from vllm_omni.inputs.data import OmniDiffusionSamplingParams
 from vllm_omni.platforms import current_omni_platform
@@ -28,7 +28,7 @@ IMAGE_VIDEO_MODELS: dict[str, dict[str, int | None]] = {
     # "Wan-AI/Wan2.2-T2V-A14B-Diffusers": {"cuda": 45000, "rocm": None},
 }
 
-MODELS = {**AUDIO_MODEL, **IMAGE_VIDEO_MODELS}
+MODELS: dict[str, dict[str, int | None]] = {**AUDIO_MODEL, **IMAGE_VIDEO_MODELS}
 
 MODEL_MARKS = {
     "riverclouds/qwen_image_random": pytest.mark.core_model,
@@ -66,7 +66,6 @@ def run_inference(
     layerwise_offload: bool = False,
     num_inference_steps: int = 3,
 ) -> tuple[float, Any]:
-    gc.collect()
     current_omni_platform.empty_cache()
     device_index = current_omni_platform.current_device()
     with current_omni_platform.device(device_index):
