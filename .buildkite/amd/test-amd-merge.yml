@@ -85,6 +85,7 @@ steps:
       agent_pool: mi300_4
       depends_on: amd-build
       mirror_hardwares: [amdproduction]
+      timeout_in_minutes: 40
       grade: Blocking
       commands:
         - export VLLM_LOGGING_LEVEL=DEBUG
@@ -95,6 +96,7 @@ steps:
       agent_pool: mi300_4
       depends_on: amd-build
       mirror_hardwares: [amdproduction]
+      timeout_in_minutes: 40
       grade: Blocking
       commands:
         - export VLLM_LOGGING_LEVEL=DEBUG
