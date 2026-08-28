@@ -71,15 +71,8 @@ steps:
       commands:
         - export VLLM_LOGGING_LEVEL=DEBUG
         - export VLLM_WORKER_MULTIPROC_METHOD=spawn
-        - |
-          bash -c '
-            set +e
-            pytest -s -v tests/diffusion/offloader/test_diffusion_cpu_offload.py
-            EXIT1=\$?
-            pytest -s -v tests/diffusion/offloader/test_diffusion_layerwise_offload.py
-            EXIT2=\$?
-            exit \$((EXIT1 | EXIT2))
-          '
+        - pytest -s -v tests/diffusion/offloader/test_diffusion_cpu_offload.py
+        - pytest -s -v tests/diffusion/offloader/test_diffusion_layerwise_offload.py
 
     - label: "Diffusion Sequence Parallelism Test (Need 4 GPUs) · Shard 1/2"
       agent_pool: mi300_4
