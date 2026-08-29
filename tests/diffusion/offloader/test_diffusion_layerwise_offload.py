@@ -10,7 +10,6 @@ import torch
 from vllm.distributed.parallel_state import cleanup_dist_env_and_memory
 
 from tests.helpers.mark import hardware_test
-from tests.helpers.monitor import DeviceMemoryMonitor
 from tests.helpers.runtime import OmniRunner
 from vllm_omni.inputs.data import OmniDiffusionSamplingParams
 from vllm_omni.platforms import current_omni_platform
@@ -61,16 +60,20 @@ def check_audio_determinism(audio1, audio2, atol=1e-2):
     return True
 
 
+def worker_peak_memory_mb(output: list[Any]) -> float:
+    """Read the request-scoped peak reported by the diffusion worker."""
+    assert output, "Diffusion worker returned no output"
+    peak = float(getattr(output[0], "peak_memory_mb", 0.0) or 0.0)
+    assert peak > 0, "Diffusion worker did not report request peak memory"
+    return peak
+
+
 def run_inference(
     model_name: str,
     layerwise_offload: bool = False,
     num_inference_steps: int = 3,
 ) -> tuple[float, Any]:
     current_omni_platform.empty_cache()
-    device_index = current_omni_platform.current_device()
-    with current_omni_platform.device(device_index):
-        free_bytes, total_bytes = current_omni_platform.mem_get_info()
-    initial_used_mb = (total_bytes - free_bytes) / (1024**2)
 
     if model_name in AUDIO_MODEL:
         params = AUDIO_MODEL_PARAMS
@@ -84,39 +87,36 @@ def run_inference(
         # cache_backend="cache_dit",
         **params["runner_params"],
     ) as runner:
-        # Measure steady-state inference memory, not model construction. Enabling
-        # layerwise offload first loads the model and then replaces each block's
-        # device storage with CPU-backed weights.  Monitoring that transition
-        # captures both the original model and temporary staging allocations,
-        # which is not representative of layerwise-offloaded inference.
-        monitor = DeviceMemoryMonitor(device_index=device_index, interval=0.02)
-        current_omni_platform.reset_peak_memory_stats()
-        monitor.start()
+        # Refer to tests/e2e/offline_inference/test_wan22.py
+        # Use minimal settings for testing
+        output = runner.omni.generate(
+            "A cat sitting on a table",
+            OmniDiffusionSamplingParams(
+                generator=torch.Generator(device=current_omni_platform.device_type).manual_seed(42),
+                guidance_scale=1.0,
+                num_inference_steps=num_inference_steps,
+                **params["sampler_params"],
+            ),
+        )
 
-        try:
-            # Refer to tests/e2e/offline_inference/test_wan22.py
-            # Use minimal settings for testing
-            output = runner.omni.generate(
-                "A cat sitting on a table",
-                OmniDiffusionSamplingParams(
-                    generator=torch.Generator(device=current_omni_platform.device_type).manual_seed(42),
-                    guidance_scale=1.0,
-                    num_inference_steps=num_inference_steps,
-                    **params["sampler_params"],
-                ),
-            )
-        finally:
-            monitor.stop()
-
-    # DeviceMemoryMonitor reports absolute device usage. Subtract this run's
-    # starting usage so process-wide compiler/workspace caches retained from a
-    # previous run do not make the second measurement order-dependent.
-    peak = max(0.0, monitor.peak_used_mb - initial_used_mb)
+    # Inference runs in StageDiffusionProc, not in this pytest process. The
+    # worker resets its allocator peak immediately before pipeline.forward and
+    # propagates that request-scoped value through OmniRequestOutput. A parent
+    # process DeviceMemoryMonitor observes total device usage instead, including
+    # unrelated CI processes and allocator state outside the worker, which can
+    # invert a relatively small offload saving.
+    peak = worker_peak_memory_mb(output)
 
     gc.collect()
     current_omni_platform.empty_cache()
 
     return peak, output
+
+
+def test_worker_peak_memory_mb_uses_request_metric():
+    output = [type("Output", (), {"peak_memory_mb": 4096.5})()]
+
+    assert worker_peak_memory_mb(output) == 4096.5
 
 
 @pytest.mark.diffusion
