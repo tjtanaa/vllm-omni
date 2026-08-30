@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM-Omni project
 
-import gc
 from typing import Any
 
 import numpy as np
@@ -10,16 +9,13 @@ import torch
 from vllm.distributed.parallel_state import cleanup_dist_env_and_memory
 
 from tests.helpers.mark import hardware_test
+from tests.helpers.monitor import DeviceMemoryMonitor
 from tests.helpers.runtime import OmniRunner
 from vllm_omni.inputs.data import OmniDiffusionSamplingParams
 from vllm_omni.platforms import current_omni_platform
 
 AUDIO_MODEL: dict[str, dict[str, int | None]] = {
-    # The inference peak includes backend workspaces as well as model weights.
-    # On ROCm, large MIOpen workspaces and allocator fragmentation can mask the
-    # resident-weight reduction, so use a conservative floor that still catches
-    # a disabled/no-op layerwise offloader.
-    "stabilityai/stable-audio-open-1.0": {"cuda": 1500, "rocm": 512},
+    "stabilityai/stable-audio-open-1.0": {"cuda": 1500, "rocm": 1500},
 }
 
 IMAGE_VIDEO_MODELS: dict[str, dict[str, int | None]] = {
@@ -60,20 +56,15 @@ def check_audio_determinism(audio1, audio2, atol=1e-2):
     return True
 
 
-def worker_peak_memory_mb(output: list[Any]) -> float:
-    """Read the request-scoped peak reported by the diffusion worker."""
-    assert output, "Diffusion worker returned no output"
-    peak = float(getattr(output[0], "peak_memory_mb", 0.0) or 0.0)
-    assert peak > 0, "Diffusion worker did not report request peak memory"
-    return peak
-
-
 def run_inference(
     model_name: str,
     layerwise_offload: bool = False,
     num_inference_steps: int = 3,
 ) -> tuple[float, Any]:
     current_omni_platform.empty_cache()
+    device_index = current_omni_platform.current_device()
+    monitor = DeviceMemoryMonitor(device_index=device_index, interval=0.02)
+    monitor.start()
 
     if model_name in AUDIO_MODEL:
         params = AUDIO_MODEL_PARAMS
@@ -87,6 +78,8 @@ def run_inference(
         # cache_backend="cache_dit",
         **params["runner_params"],
     ) as runner:
+        current_omni_platform.reset_peak_memory_stats()
+
         # Refer to tests/e2e/offline_inference/test_wan22.py
         # Use minimal settings for testing
         output = runner.omni.generate(
@@ -99,24 +92,10 @@ def run_inference(
             ),
         )
 
-    # Inference runs in StageDiffusionProc, not in this pytest process. The
-    # worker resets its allocator peak immediately before pipeline.forward and
-    # propagates that request-scoped value through OmniRequestOutput. A parent
-    # process DeviceMemoryMonitor observes total device usage instead, including
-    # unrelated CI processes and allocator state outside the worker, which can
-    # invert a relatively small offload saving.
-    peak = worker_peak_memory_mb(output)
-
-    gc.collect()
-    current_omni_platform.empty_cache()
+    peak = monitor.peak_used_mb
+    monitor.stop()
 
     return peak, output
-
-
-def test_worker_peak_memory_mb_uses_request_metric():
-    output = [type("Output", (), {"peak_memory_mb": 4096.5})()]
-
-    assert worker_peak_memory_mb(output) == 4096.5
 
 
 @pytest.mark.diffusion
@@ -169,10 +148,8 @@ def test_layerwise_offload_diffusion_model(model_name: str):
     assert expected_saved_memory is not None
 
     # Verify that layerwise offloading significantly reduces memory usage
-    # Passes only if the actual savings meets the expected savings
-    actual_saved_memory = no_offload_peak_memory - layerwise_offload_peak_memory
-    assert layerwise_offload_peak_memory + expected_saved_memory <= no_offload_peak_memory, (
+    # Passes only if the actual savings exceeds the expected savings
+    assert layerwise_offload_peak_memory + expected_saved_memory < no_offload_peak_memory, (
         f"Layerwise offload peak memory {layerwise_offload_peak_memory} MB "
-        f"should be at least {expected_saved_memory} MB less than no offload peak memory "
-        f"{no_offload_peak_memory} MB (actual savings: {actual_saved_memory} MB)"
+        f"should be significantly less than no offload peak memory {no_offload_peak_memory} MB"
     )

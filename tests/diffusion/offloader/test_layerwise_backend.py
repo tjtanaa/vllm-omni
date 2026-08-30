@@ -14,7 +14,6 @@ from torch.distributed.tensor import DeviceMesh, DTensor, Replicate
 
 import vllm_omni.diffusion.offloader.layerwise_backend as layerwise_backend_module
 from tests.helpers.runtime import get_distributed_init_method
-from vllm_omni.diffusion.offloader.base import OffloadConfig, OffloadStrategy
 from vllm_omni.diffusion.offloader.layerwise_backend import LayerWiseOffloadBackend, LayerwiseOffloadHook
 from vllm_omni.platforms import current_omni_platform
 
@@ -247,36 +246,3 @@ class TestGetBlocksAttrNames:
         LayerWiseOffloadBackend.set_blocks_attr_names(model, ["new_blocks"])
         assert hasattr(model.__class__, "_layerwise_offload_blocks_attrs")
         assert model.__class__._layerwise_offload_blocks_attrs == ["new_blocks"]
-
-
-def test_cleanup_after_loading_releases_stale_accelerator_reservations(monkeypatch):
-    calls = []
-    monkeypatch.setattr(
-        layerwise_backend_module.current_omni_platform,
-        "synchronize",
-        lambda: calls.append("synchronize"),
-    )
-    monkeypatch.setattr(
-        layerwise_backend_module.current_omni_platform,
-        "empty_cache",
-        lambda: calls.append("empty_cache"),
-    )
-
-    LayerWiseOffloadBackend._cleanup_after_loading()
-
-    assert calls == ["synchronize", "empty_cache"]
-
-
-def test_enable_releases_loading_reservations_after_installing_hooks(patched_offload_runtime, mocker):
-    pipeline = nn.Module()
-    pipeline.transformer = _SingleBlockModel(num_blocks=3)
-    backend = LayerWiseOffloadBackend(
-        OffloadConfig(strategy=OffloadStrategy.LAYER_WISE, pin_cpu_memory=False),
-        device=torch.device("cpu"),
-    )
-    cleanup = mocker.patch.object(backend, "_cleanup_after_loading")
-
-    backend.enable(pipeline)
-
-    assert backend.enabled
-    cleanup.assert_called_once_with()

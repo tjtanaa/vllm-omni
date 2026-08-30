@@ -429,19 +429,6 @@ class LayerWiseOffloadBackend(OffloadBackend):
 
         if len(self._blocks) > 0 and len(self._blocks[0]) > 0:
             self.enabled = True
-            # The model is initially loaded on the accelerator. Registering
-            # the hooks replaces all but the prefetched block's device storage
-            # with CPU-backed placeholders, but the allocator still retains
-            # those released blocks in its reserved pool. Release that stale
-            # loading footprint before the first request so peak reserved
-            # memory reflects layerwise-offloaded inference.
-            self._cleanup_after_loading()
-
-    @staticmethod
-    def _cleanup_after_loading() -> None:
-        """Wait for weight transfers and release freed loading allocations."""
-        current_omni_platform.synchronize()
-        current_omni_platform.empty_cache()
 
     def disable(self) -> None:
         if not self.enabled:
