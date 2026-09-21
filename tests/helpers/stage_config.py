@@ -341,6 +341,17 @@ _CI_OVERLAYS: dict[str, dict[str, Any]] = {
             },
         ],
         "platforms": {
+            "rocm": {
+                # Prefix caching mirrors KV slots in pinned CPU memory. Sizing
+                # these short CI requests from GPU utilization reserves >100 GiB
+                # of KV cache on MI300 and multi-GiB host mirrors, whose first
+                # allocation can exceed the HTTP timeout. 4 GiB per AR stage
+                # still accommodates the 32K model length and the test batches.
+                "stages": [
+                    {"stage_id": 0, "gpu_memory_utilization": None, "kv_cache_memory_bytes": 4 * 1024**3},
+                    {"stage_id": 1, "gpu_memory_utilization": None, "kv_cache_memory_bytes": 4 * 1024**3},
+                ],
+            },
             "xpu": {
                 "stages": [
                     {
