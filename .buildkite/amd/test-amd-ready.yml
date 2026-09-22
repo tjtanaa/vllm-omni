@@ -41,7 +41,20 @@ steps:
         - export VLLM_ROCM_USE_AITER=0
         # ignore test_teacache_extractors.py because it use rocm gemm kernel from vLLM
         # that is not supported on CPU
-        - "pytest -sv tests/diffusion -m 'core_model and cpu' --ignore=tests/diffusion/cache/test_teacache_extractors.py --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT --shard-id=$$BUILDKITE_PARALLEL_JOB"
+        # Slow pi0.5 model tests run in their own job below.
+        - "pytest -sv tests/diffusion -m 'core_model and cpu' -k 'not (test_pi05_units and slow)' --ignore=tests/diffusion/cache/test_teacache_extractors.py --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT --shard-id=$$BUILDKITE_PARALLEL_JOB"
+
+    - label: "Simple · Pi0.5 Slow Model Test"
+      agent_pool: mi300_1
+      depends_on: amd-build
+      mirror_hardwares: [amdproduction]
+      grade: Blocking
+      timeout_in_minutes: 60
+      commands:
+        - export VLLM_ROCM_USE_AITER=0
+        # Bound CPU parallelism for the model's large vision backbone.
+        - export OMP_NUM_THREADS=4 MKL_NUM_THREADS=4
+        - "pytest -sv tests/diffusion/models/pi05/test_pi05_units.py -m 'core_model and cpu and slow' --durations=30"
 
     - label: "Simple · Engine&Entrypoints Test"
       agent_pool: mi300_1
