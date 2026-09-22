@@ -1032,7 +1032,15 @@ class DiffusionWorker:
                 except Exception:
                     logger.exception("Failed to release fused Ulysses symmetric-memory workspaces")
                 finally:
-                    destroy_distributed_env()
+                    try:
+                        destroy_distributed_env()
+                    finally:
+                        # Frames or extension callbacks can outlive an inline
+                        # worker's shutdown. Do not let them retain the model
+                        # and its sleep-pool allocations until process exit.
+                        self.model_runner = None
+                        self.lora_manager = None
+                        self._sleep_saved_buffers = {}
 
 
 class CustomPipelineWorkerExtension:
@@ -1637,7 +1645,16 @@ class WorkerWrapperBase:
 
         # Re-initialize pipeline with custom pipeline if provided
         if self.uses_custom_pipeline:
-            self.worker.re_init_pipeline(self.custom_pipeline_args)
+            try:
+                self.worker.re_init_pipeline(self.custom_pipeline_args)
+            except Exception:
+                # The wrapper has not been returned to its executor yet, so
+                # executor shutdown cannot reach this initialized worker.
+                try:
+                    self.worker.shutdown()
+                except Exception:
+                    logger.exception("Failed to shut down worker after custom pipeline initialization failed")
+                raise
 
     def _prepare_worker_class(self) -> type:
         """

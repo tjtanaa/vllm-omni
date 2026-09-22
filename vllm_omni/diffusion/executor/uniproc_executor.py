@@ -252,6 +252,28 @@ class UniProcDiffusionExecutor(DiffusionExecutor):
         # allocations to the driver so a subsequent engine can use the device.
         del worker
         gc.collect()
+        if getattr(self.od_config, "enable_sleep_mode", False):
+            # empty_cache() does not release the private pools retained by
+            # CuMemAllocator. Release them after the worker/model is gone so
+            # another sleep-enabled engine can be created in this process.
+            from vllm_omni.diffusion.worker.diffusion_worker import _get_cumem_allocator_class
+
+            allocator = _get_cumem_allocator_class().get_instance()
+            release_pools = getattr(allocator, "release_pools", None)
+            if release_pools is not None:
+                release_pools()
+            else:
+                # Older vLLM versions retain pools without exposing a release
+                # method. Keep their pluggable allocators alive until all pool
+                # destructors have run (MemPool holds a non-owning pointer).
+                entries = list(allocator.allocator_and_pools.values())
+                allocator.allocator_and_pools.clear()
+                pools = [entry[0] for entry in entries]
+                allocators = [entry[1] for entry in entries]
+                entries.clear()
+                pools.clear()
+                gc.collect()
+                allocators.clear()
         try:
             if current_omni_platform.is_available():
                 current_omni_platform.empty_cache()

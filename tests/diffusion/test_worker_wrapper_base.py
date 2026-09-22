@@ -14,6 +14,7 @@ This module tests the WorkerWrapperBase implementation:
 
 from types import SimpleNamespace
 from typing import Any
+from weakref import ref
 
 import pytest
 from pytest_mock import MockerFixture
@@ -75,6 +76,27 @@ class MockCustomPipeline:
 
 class TestWorkerWrapperBaseInitialization:
     """Test WorkerWrapperBase initialization behavior."""
+
+    @pytest.mark.parametrize("shutdown_fails", [False, True])
+    def test_custom_pipeline_failure_shuts_down_worker(self, mocker, mock_od_config, shutdown_fails):
+        mocker.patch.object(DiffusionWorker, "__init__", return_value=None)
+        mocker.patch.object(
+            CustomPipelineWorkerExtension, "re_init_pipeline", side_effect=RuntimeError("pipeline load failed")
+        )
+        shutdown = mocker.patch.object(
+            DiffusionWorker,
+            "shutdown",
+            side_effect=RuntimeError("shutdown failed") if shutdown_fails else None,
+        )
+
+        with pytest.raises(RuntimeError, match="pipeline load failed"):
+            WorkerWrapperBase(
+                gpu_id=0,
+                od_config=mock_od_config,
+                custom_pipeline_args={"pipeline_class": "unused"},
+            )
+
+        shutdown.assert_called_once_with()
 
     def test_basic_initialization(self, mocker: MockerFixture, mock_od_config):
         """Test basic initialization without extensions."""
@@ -247,6 +269,35 @@ class TestWorkerWrapperBaseDelegation:
 
         assert events == ["offload", "kv", "distributed"]
         destroy.assert_called_once_with()
+
+    @pytest.mark.parametrize("teardown_fails", [False, True])
+    def test_shutdown_releases_model_even_if_worker_is_retained(self, mocker, teardown_fails):
+        class Model:
+            pass
+
+        worker = DiffusionWorker.__new__(DiffusionWorker)
+        model = Model()
+        model_ref = ref(model)
+        worker.model_runner = SimpleNamespace(pipeline=model)
+        worker.lora_manager = SimpleNamespace(pipeline=model)
+        worker._sleep_saved_buffers = {"buffer": model}
+        del model
+        mocker.patch("vllm_omni.diffusion.worker.diffusion_worker.shutdown_kv_connector")
+        mocker.patch(
+            "vllm_omni.diffusion.worker.diffusion_worker.destroy_distributed_env",
+            side_effect=RuntimeError("teardown failed") if teardown_fails else None,
+        )
+
+        if teardown_fails:
+            with pytest.raises(RuntimeError, match="teardown failed"):
+                worker.shutdown()
+        else:
+            worker.shutdown()
+
+        assert worker.model_runner is None
+        assert worker.lora_manager is None
+        assert not worker._sleep_saved_buffers
+        assert model_ref() is None
 
 
 # -------------------------------------------------------------------------

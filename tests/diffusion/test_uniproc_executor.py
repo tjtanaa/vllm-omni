@@ -260,3 +260,37 @@ def test_shutdown_is_idempotent_and_closes_executor(executor, monkeypatch):
     empty_cache.assert_called_once_with()
     with pytest.raises(RuntimeError, match="closed"):
         exec_.collective_rpc("some_method", unique_reply_rank=0)
+
+
+@pytest.mark.parametrize("has_release_method", [True, False])
+def test_shutdown_releases_sleep_pools_after_worker(executor, monkeypatch, has_release_method):
+    exec_, worker = executor
+    exec_.od_config.enable_sleep_mode = True
+    events = []
+
+    class Pool:
+        def __del__(self):
+            events.append("pool")
+
+    class Allocator:
+        def __del__(self):
+            events.append("allocator")
+
+    allocator = SimpleNamespace(allocator_and_pools={"weights": (Pool(), Allocator())})
+    if has_release_method:
+        allocator.release_pools = lambda: events.append("release")
+    monkeypatch.setattr(
+        "vllm_omni.diffusion.worker.diffusion_worker._get_cumem_allocator_class",
+        lambda: SimpleNamespace(get_instance=lambda: allocator),
+    )
+    monkeypatch.setattr(
+        "vllm_omni.diffusion.executor.uniproc_executor.current_omni_platform.is_available", lambda: False
+    )
+    worker.shutdown.side_effect = lambda: events.append("worker")
+
+    exec_.shutdown()
+    exec_.shutdown()
+
+    assert events == (["worker", "release"] if has_release_method else ["worker", "pool", "allocator"])
+    if not has_release_method:
+        assert not allocator.allocator_and_pools
