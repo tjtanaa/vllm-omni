@@ -1,16 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM-Omni project
 """CPU tests for the Wan VAE decoder fast path installer and its exact PyTorch fallbacks."""
 
 from __future__ import annotations
 
 import importlib
+import importlib.util
 from functools import wraps
 from types import SimpleNamespace
 
 import pytest
 import torch
 from diffusers.models.autoencoders import AutoencoderKLWan
+from diffusers.models.autoencoders import autoencoder_kl_wan as wan_module
 from torch import nn
 
 from vllm_omni.diffusion import registry as registry_module
@@ -24,6 +26,7 @@ from vllm_omni.diffusion.distributed.autoencoders.wan_vae_fastpath import (
     uninstall_wan_vae_fastpath,
 )
 from vllm_omni.diffusion.distributed.autoencoders.wan_vae_fastpath import forwards as fastpath_forwards
+from vllm_omni.diffusion.models.wan2_2.norm import RMSNormVAE
 
 pytestmark = [pytest.mark.core_model, pytest.mark.cpu, pytest.mark.diffusion]
 
@@ -50,6 +53,25 @@ CONFIGS = {
     "residual_patch2": TINY_RESIDUAL_PATCH2,
     "wan21": TINY_WAN21,
 }
+
+
+@pytest.fixture(scope="module")
+def diffusers_rms_norm():
+    # Wan2.2 imports replace WanRMS_norm process-wide. Load a private copy of
+    # the diffusers module to recover its original class regardless of test
+    # collection order, without reloading/mutating the shared module.
+    spec = importlib.util.find_spec(wan_module.__name__)
+    assert spec is not None and spec.loader is not None
+    pristine = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pristine)
+    return pristine.WanRMS_norm
+
+
+@pytest.fixture(autouse=True)
+def use_diffusers_rms_norm(monkeypatch, diffusers_rms_norm):
+    # These tests exercise diffusers' exact normalization semantics. Restore
+    # the previous (possibly Omni-patched) class after each test.
+    monkeypatch.setattr(wan_module, "WanRMS_norm", diffusers_rms_norm)
 
 
 def _build_pair(config: dict, dtype: torch.dtype) -> tuple[AutoencoderKLWan, AutoencoderKLWan]:
@@ -535,8 +557,6 @@ def test_upsample_forward_only_fuses_nearest_2x() -> None:
 
 
 def test_rms_norm_vae_substitute_is_not_matched() -> None:
-    from vllm_omni.diffusion.layers.norm import RMSNormVAE
-
     assert not fastpath_forwards.is_diffusers_rms_norm(RMSNormVAE(8, images=False))
     _, vae = _build_pair(TINY_RESIDUAL, torch.float32)
     norm = vae.decoder.norm_out
