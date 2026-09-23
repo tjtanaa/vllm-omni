@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM-Omni project
+
 import base64
 import concurrent.futures
 import os
@@ -450,6 +453,8 @@ def run_multimodal_generation(args, client: OpenAI) -> None:
         for chat_completion in chat_completions:
             request_id = getattr(chat_completion, "id", None)
             for choice in chat_completion.choices:
+                if choice.message.content:
+                    print("Chat completion output from text:", choice.message.content)
                 if choice.message.audio:
                     audio_data = base64.b64decode(choice.message.audio.data)
                     audio_file_path = make_audio_output_filename(request_id=request_id, index=count)
@@ -457,8 +462,6 @@ def run_multimodal_generation(args, client: OpenAI) -> None:
                         f.write(audio_data)
                     print(f"Audio saved to {audio_file_path}")
                     count += 1
-                elif choice.message.content:
-                    print("Chat completion output from text:", choice.message.content)
     else:
         printed_content = False
         for chat_completion in chat_completions:
